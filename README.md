@@ -1,5 +1,5 @@
 # character-histogram
-Usage: bar-chart [-p path] [-a amount]
+Usage: rune-counter [-p path] [-a amount]
 
   -p string
 
