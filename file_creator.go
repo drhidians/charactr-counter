@@ -33,7 +33,7 @@ func createRandomFiles(root string, count int) {
 			panic(err)
 		}
 
-		rs := randStringRunes(1000000)
+		rs := randStringRunes(10000)
 		f.WriteString(rs)
 	}
 }
