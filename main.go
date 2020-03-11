@@ -89,14 +89,11 @@ func main() {
 							panic(err)
 						}
 					} else {
-						/*m.Lock()
-						runes[c]++
-						m.Unlock()*/
 						channel <- c
 					}
 				}
 			}(path)
-			//fmt.Println(len(runGor), runtime.NumGoroutine())
+
 			return nil
 		})
 
@@ -118,15 +115,3 @@ func main() {
 	}
 
 }
-
-/*
-'\t': 782080
-'P': 783262
-'\x14': 782006
-'e': 781483
-'g': 781032
-'\a': 781714
-'U': 782396
-',': 781505
-'_': 780848
-'A': 780423*/
