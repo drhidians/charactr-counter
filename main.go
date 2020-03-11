@@ -87,15 +87,11 @@ func characterHistogram(root string) (map[rune]uint, error) {
 	c := make(chan rune, runtime.NumCPU()*100) // HLc
 	var wg sync.WaitGroup
 
-	numWorker := 1
-	wg.Add(numWorker)
-
-	for i := 0; i < numWorker; i++ {
-		go func() {
-			runeReader(done, paths, c) // HLc
-			wg.Done()
-		}()
-	}
+	wg.Add(1)
+	go func() {
+		runeReader(done, paths, c) // HLc
+		wg.Done()
+	}()
 
 	go func() {
 		wg.Wait()
