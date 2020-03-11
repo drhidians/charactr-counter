@@ -43,43 +43,23 @@ func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) 
 	return paths, errc
 }
 
-func readRune(data []byte) <-chan rune {
-	out := make(chan rune)
-	r := bufio.NewReader(bytes.NewReader(data))
-
-	go func() {
-		for {
-			if c, _, err := r.ReadRune(); err != nil {
-				if err == io.EOF {
-					break
-				} else {
-					panic(err)
-				}
-			} else {
-				out <- c
-			}
-		}
-	}()
-	return out
-
-}
-
-// characterCounter reads path names from paths and sends character of the corresponding
+// runeReader reads path names from paths and sends character of the corresponding
 // files on c until either paths or done is closed.
-func characterCounter(done <-chan struct{}, paths <-chan string, c chan<- rune) {
+func runeReader(done <-chan struct{}, paths <-chan string, c chan<- rune) {
 	for path := range paths { // HLpaths
+
 		data, err := ioutil.ReadFile(path)
 		if err != nil {
 			panic(err)
 		}
-
 		b := bufio.NewReader(bytes.NewReader(data))
 
 		for {
 			if r, _, err := b.ReadRune(); err != nil {
 				if err == io.EOF {
-					break
-				} else {
+					return
+				}
+				if err != nil {
 					panic(err)
 				}
 			} else {
@@ -101,17 +81,18 @@ func characterHistogram(root string) (map[rune]uint, error) {
 	done := make(chan struct{})
 	defer close(done)
 
+	t := time.Now()
 	paths, errc := walkFiles(done, root)
 
 	// Start a fixed number of goroutines to read and count characters from files.
-	c := make(chan rune, 100) // HLc
+	c := make(chan rune, 1000) // HLc
 	var wg sync.WaitGroup
-	const numWorker = 8
+	numWorker := 10
 	wg.Add(numWorker)
 
 	for i := 0; i < numWorker; i++ {
 		go func() {
-			characterCounter(done, paths, c) // HLc
+			runeReader(done, paths, c) // HLc
 			wg.Done()
 		}()
 	}
@@ -130,6 +111,8 @@ func characterHistogram(root string) (map[rune]uint, error) {
 	if err := <-errc; err != nil { // HLerrc
 		return nil, err
 	}
+	fmt.Println(time.Since(t))
+
 	return m, nil
 }
 
@@ -151,13 +134,12 @@ func main() {
 		createRandomFiles(*root, *amount)
 	}
 
-	t := time.Now()
 	runes, err := characterHistogram(*root)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(time.Since(t))
+
 	return
 	for r, v := range runes {
 		fmt.Printf("%q: %d\n", r, v)
