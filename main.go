@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 )
 
 func usage() {
@@ -32,10 +33,12 @@ func main() {
 		createRandomFiles(*root, *amount)
 	}
 
+	var t = time.Now()
+
 	var runes = make(map[rune]uint)
 
 	var numCPU = runtime.NumCPU()
-	var channel = make(chan rune, numCPU)
+	var channel = make(chan rune, 100)
 
 	done := make(chan bool, 1)
 
@@ -105,6 +108,8 @@ func main() {
 	<-done
 	close(done)
 
+	fmt.Println(time.Since(t))
+	return
 	for k, v := range runes {
 		fmt.Printf("%q: %d\n", k, v)
 	}
