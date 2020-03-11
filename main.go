@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"time"
 )
 
 // walkFiles starts a goroutine to walk the directory tree at root and send the
@@ -46,32 +45,34 @@ func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) 
 
 // runeReader reads path names from paths and sends character of the corresponding
 // files on c until either paths or done is closed.
-func runeReader(done <-chan struct{}, path string, c chan<- rune) {
+func runeReader(done <-chan struct{}, paths <-chan string, c chan<- rune) {
+	for path := range paths { // HLpaths
 
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		panic(err)
-	}
-	b := bufio.NewReader(bytes.NewReader(data))
-
-	for {
-		if r, _, err := b.ReadRune(); err != nil {
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				panic(err)
-			}
-		} else {
-			select {
-			case c <- r:
-			case <-done:
-				return
-			}
-
+		data, err := ioutil.ReadFile(path)
+		if err != nil {
+			panic(err)
 		}
-	}
+		b := bufio.NewReader(bytes.NewReader(data))
 
+		for {
+			if r, _, err := b.ReadRune(); err != nil {
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					panic(err)
+				}
+			} else {
+				/*select {
+				case*/c <- r /*:
+				case <-done:
+					return
+				}*/
+
+			}
+		}
+
+	}
 }
 
 func characterHistogram(root string) (map[rune]uint, error) {
@@ -80,27 +81,20 @@ func characterHistogram(root string) (map[rune]uint, error) {
 	done := make(chan struct{})
 	defer close(done)
 
-	t := time.Now()
 	paths, errc := walkFiles(done, root)
 
-	// Start a fixed number of goroutines to read and count characters from files.
-	c := make(chan rune, 10000) // HLc
+	// Create fixed number of channels for better throughput
+	c := make(chan rune, runtime.NumCPU()*100) // HLc
 	var wg sync.WaitGroup
 
-	numWorker := make(chan struct{}, runtime.NumCPU()-4)
+	numWorker := 1
+	wg.Add(numWorker)
 
-	for path := range paths { // HLpaths
-		wg.Add(1)
-
-		go func(path string) {
-
-			numWorker <- struct{}{}
-			runeReader(done, path, c) // HLc
-			<-numWorker
-
+	for i := 0; i < numWorker; i++ {
+		go func() {
+			runeReader(done, paths, c) // HLc
 			wg.Done()
-		}(path)
-
+		}()
 	}
 
 	go func() {
@@ -117,7 +111,6 @@ func characterHistogram(root string) (map[rune]uint, error) {
 	if err := <-errc; err != nil { // HLerrc
 		return nil, err
 	}
-	fmt.Println(time.Since(t))
 
 	return m, nil
 }
@@ -146,7 +139,6 @@ func main() {
 		return
 	}
 
-	return
 	for r, v := range runes {
 		fmt.Printf("%q: %d\n", r, v)
 	}
