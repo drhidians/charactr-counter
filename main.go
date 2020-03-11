@@ -10,7 +10,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
+	"time"
 )
 
 func usage() {
@@ -31,10 +33,28 @@ func main() {
 		createRandomFiles(*root, *amount)
 	}
 
+	var t = time.Now()
+
 	var runes = make(map[rune]uint)
 
+	var numCPU = runtime.NumCPU()
+	var channel = make(chan rune, numCPU)
+
+	done := make(chan bool, 1)
+
+	go func() {
+
+		for r := range channel {
+			runes[r]++
+		}
+		done <- true
+	}()
+
 	var wg sync.WaitGroup
-	var m sync.Mutex
+	//var m sync.Mutex
+
+	// Keep alive "rune counter" goroutine
+	var numWork = make(chan struct{}, numCPU-2)
 
 	err := filepath.Walk(*root,
 
@@ -45,9 +65,14 @@ func main() {
 			}
 
 			wg.Add(1)
+
+			numWork <- struct{}{}
 			go func(file string) {
 
-				defer wg.Done()
+				defer func() {
+					<-numWork
+					defer wg.Done()
+				}()
 
 				content, err := ioutil.ReadFile(file)
 				if err != nil {
@@ -64,26 +89,44 @@ func main() {
 							panic(err)
 						}
 					} else {
-						m.Lock()
+						/*m.Lock()
 						runes[c]++
-						m.Unlock()
+						m.Unlock()*/
+						channel <- c
 					}
 				}
 			}(path)
-
+			//fmt.Println(len(runGor), runtime.NumGoroutine())
 			return nil
 		})
 
 	if err != nil {
 		usage()
-		log.Println(err)
 		os.Exit(1)
 	}
 
 	wg.Wait()
+	close(channel)
+
+	<-done
+	close(done)
+
+	fmt.Println(time.Since(t))
 
 	for k, v := range runes {
 		fmt.Printf("%q: %d\n", k, v)
 	}
 
 }
+
+/*
+'\t': 782080
+'P': 783262
+'\x14': 782006
+'e': 781483
+'g': 781032
+'\a': 781714
+'U': 782396
+',': 781505
+'_': 780848
+'A': 780423*/
