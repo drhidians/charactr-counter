@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -31,9 +32,12 @@ func main() {
 	if *amount != 0 {
 		createRandomFiles(*root, *amount)
 	}
-	t := time.Now()
+
+	var t = time.Now()
+
 	var runes = make(map[rune]uint)
 
+	var numCPU = runtime.NumCPU()
 	var channel = make(chan rune, 100)
 
 	done := make(chan bool, 1)
@@ -47,6 +51,10 @@ func main() {
 	}()
 
 	var wg sync.WaitGroup
+	//var m sync.Mutex
+
+	// Keep alive "rune counter" goroutine
+	var numWork = make(chan struct{}, numCPU)
 
 	err := filepath.Walk(*root,
 
@@ -58,9 +66,13 @@ func main() {
 
 			wg.Add(1)
 
+			numWork <- struct{}{}
 			go func(file string) {
 
-				defer wg.Done()
+				defer func() {
+					<-numWork
+					defer wg.Done()
+				}()
 
 				content, err := ioutil.ReadFile(file)
 				if err != nil {
@@ -80,7 +92,6 @@ func main() {
 						channel <- c
 					}
 				}
-
 			}(path)
 
 			return nil
@@ -96,6 +107,7 @@ func main() {
 
 	<-done
 	close(done)
+
 	fmt.Println(time.Since(t))
 	return
 	for k, v := range runes {
@@ -103,15 +115,3 @@ func main() {
 	}
 
 }
-
-/*
-'\t': 782080
-'P': 783262
-'\x14': 782006
-'e': 781483
-'g': 781032
-'\a': 781714
-'U': 782396
-',': 781505
-'_': 780848
-'A': 780423*/
