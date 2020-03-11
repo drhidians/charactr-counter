@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -45,34 +46,32 @@ func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) 
 
 // runeReader reads path names from paths and sends character of the corresponding
 // files on c until either paths or done is closed.
-func runeReader(done <-chan struct{}, paths <-chan string, c chan<- rune) {
-	for path := range paths { // HLpaths
+func runeReader(done <-chan struct{}, path string, c chan<- rune) {
 
-		data, err := ioutil.ReadFile(path)
-		if err != nil {
-			panic(err)
-		}
-		b := bufio.NewReader(bytes.NewReader(data))
-
-		for {
-			if r, _, err := b.ReadRune(); err != nil {
-				if err == io.EOF {
-					return
-				}
-				if err != nil {
-					panic(err)
-				}
-			} else {
-				select {
-				case c <- r:
-				case <-done:
-					return
-				}
-
-			}
-		}
-
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		panic(err)
 	}
+	b := bufio.NewReader(bytes.NewReader(data))
+
+	for {
+		if r, _, err := b.ReadRune(); err != nil {
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			select {
+			case c <- r:
+			case <-done:
+				return
+			}
+
+		}
+	}
+
 }
 
 func characterHistogram(root string) (map[rune]uint, error) {
@@ -85,16 +84,23 @@ func characterHistogram(root string) (map[rune]uint, error) {
 	paths, errc := walkFiles(done, root)
 
 	// Start a fixed number of goroutines to read and count characters from files.
-	c := make(chan rune, 1000) // HLc
+	c := make(chan rune, 10000) // HLc
 	var wg sync.WaitGroup
-	numWorker := 10
-	wg.Add(numWorker)
 
-	for i := 0; i < numWorker; i++ {
-		go func() {
-			runeReader(done, paths, c) // HLc
+	numWorker := make(chan struct{}, runtime.NumCPU()-4)
+
+	for path := range paths { // HLpaths
+		wg.Add(1)
+
+		go func(path string) {
+
+			numWorker <- struct{}{}
+			runeReader(done, path, c) // HLc
+			<-numWorker
+
 			wg.Done()
-		}()
+		}(path)
+
 	}
 
 	go func() {
