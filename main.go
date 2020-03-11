@@ -3,115 +3,142 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"flag"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
-	"time"
 )
 
-func usage() {
-	log.Printf("Usage: rune-counter [-p path] [-a amount]\n")
-	flag.PrintDefaults()
+// walkFiles starts a goroutine to walk the directory tree at root and send the
+// path of each regular file on the string channel.  It sends the result of the
+// walk on the error channel.  If done is closed, walkFiles abandons its work.
+func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) {
+	paths := make(chan string)
+	errc := make(chan error, 1)
+	go func() { // HL
+		// Close the paths channel after Walk returns.
+		defer close(paths) // HL
+		// No select needed for this send, since errc is buffered.
+		errc <- filepath.Walk(root, func(path string, info os.FileInfo, err error) error { // HL
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+			select {
+			case paths <- path: // HL
+			case <-done: // HL
+				return errors.New("walk canceled")
+			}
+			return nil
+		})
+	}()
+	return paths, errc
+}
+
+func readRune(data []byte) <-chan rune {
+	out := make(chan rune)
+	r := bufio.NewReader(bytes.NewReader(data))
+
+	go func() {
+		for {
+			if c, _, err := r.ReadRune(); err != nil {
+				if err == io.EOF {
+					break
+				} else {
+					panic(err)
+				}
+			} else {
+				out <- c
+			}
+		}
+	}()
+	return out
+
+}
+
+// characterCounter reads path names from paths and sends character of the corresponding
+// files on c until either paths or done is closed.
+func characterCounter(done <-chan struct{}, paths <-chan string, c chan<- rune) {
+	for path := range paths { // HLpaths
+		data, err := ioutil.ReadFile(path)
+		if err != nil {
+			panic(err)
+		}
+
+		b := bufio.NewReader(bytes.NewReader(data))
+
+		for {
+			if r, _, err := b.ReadRune(); err != nil {
+				if err == io.EOF {
+					break
+				} else {
+					panic(err)
+				}
+			} else {
+				select {
+				case c <- r:
+				case <-done:
+					return
+				}
+
+			}
+		}
+
+	}
+}
+
+func characterHistogram(root string) (map[rune]uint, error) {
+	// characterHistogram closes the done channel when it returns; it may do so before
+	// receiving all the values from c and errc.
+	done := make(chan struct{})
+	defer close(done)
+
+	paths, errc := walkFiles(done, root)
+
+	// Start a fixed number of goroutines to read and count characters from files.
+	c := make(chan rune) // HLc
+	var wg sync.WaitGroup
+	const numWorker = 20
+	wg.Add(numWorker)
+
+	for i := 0; i < numWorker; i++ {
+		go func() {
+			characterCounter(done, paths, c) // HLc
+			wg.Done()
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(c) // HLc
+	}()
+	// End of pipeline. OMIT
+
+	m := make(map[rune]uint)
+	for r := range c {
+		m[r]++
+	}
+	// Check whether the Walk failed.
+	if err := <-errc; err != nil { // HLerrc
+		return nil, err
+	}
+	return m, nil
 }
 
 func main() {
 
-	var root = flag.String("p", "files", "Path to file")
-	var amount = flag.Int("a", 0, "Amount of mock files to create inside Path")
-
-	log.SetFlags(0)
-	flag.Usage = usage
-	flag.Parse()
-
-	if *amount != 0 {
-		createRandomFiles(*root, *amount)
-	}
-
-	var t = time.Now()
-
-	var runes = make(map[rune]uint)
-
-	var numCPU = runtime.NumCPU()
-	var channel = make(chan rune, 100)
-
-	done := make(chan bool, 1)
-
-	go func() {
-
-		for r := range channel {
-			runes[r]++
-		}
-		done <- true
-	}()
-
-	var wg sync.WaitGroup
-	//var m sync.Mutex
-
-	// Keep alive "rune counter" goroutine
-	var numWork = make(chan struct{}, numCPU)
-
-	err := filepath.Walk(*root,
-
-		func(path string, info os.FileInfo, err error) error {
-
-			if err != nil || info.IsDir() {
-				return err
-			}
-
-			wg.Add(1)
-
-			numWork <- struct{}{}
-			go func(file string) {
-
-				defer func() {
-					<-numWork
-					defer wg.Done()
-				}()
-
-				content, err := ioutil.ReadFile(file)
-				if err != nil {
-					panic(err)
-				}
-
-				r := bufio.NewReader(bytes.NewReader(content))
-
-				for {
-					if c, _, err := r.ReadRune(); err != nil {
-						if err == io.EOF {
-							break
-						} else {
-							panic(err)
-						}
-					} else {
-						channel <- c
-					}
-				}
-			}(path)
-
-			return nil
-		})
-
+	runes, err := characterHistogram(os.Args[1])
 	if err != nil {
-		usage()
-		os.Exit(1)
+		fmt.Println(err)
+		return
 	}
-
-	wg.Wait()
-	close(channel)
-
-	<-done
-	close(done)
-
-	fmt.Println(time.Since(t))
-	return
-	for k, v := range runes {
-		fmt.Printf("%q: %d\n", k, v)
+	for r, v := range runes {
+		fmt.Printf("%q: %d\n", r, v)
 	}
 
 }
