@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // walkFiles starts a goroutine to walk the directory tree at root and send the
@@ -101,9 +104,9 @@ func characterHistogram(root string) (map[rune]uint, error) {
 	paths, errc := walkFiles(done, root)
 
 	// Start a fixed number of goroutines to read and count characters from files.
-	c := make(chan rune) // HLc
+	c := make(chan rune, 100) // HLc
 	var wg sync.WaitGroup
-	const numWorker = 20
+	const numWorker = 8
 	wg.Add(numWorker)
 
 	for i := 0; i < numWorker; i++ {
@@ -130,13 +133,32 @@ func characterHistogram(root string) (map[rune]uint, error) {
 	return m, nil
 }
 
+func usage() {
+	log.Printf("Usage: rune-counter [-p path] [-a amount]\n")
+	flag.PrintDefaults()
+}
+
 func main() {
 
-	runes, err := characterHistogram(os.Args[1])
+	var root = flag.String("p", "files", "Path to file")
+	var amount = flag.Int("a", 0, "Amount of mock files to create inside Path")
+
+	log.SetFlags(0)
+	flag.Usage = usage
+	flag.Parse()
+
+	if *amount != 0 {
+		createRandomFiles(*root, *amount)
+	}
+
+	t := time.Now()
+	runes, err := characterHistogram(*root)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
+	fmt.Println(time.Since(t))
+	return
 	for r, v := range runes {
 		fmt.Printf("%q: %d\n", r, v)
 	}
