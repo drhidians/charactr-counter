@@ -14,8 +14,8 @@ func init() {
 func randStringRunes(n int) string {
 	b := make([]rune, n)
 	for i := range b {
-		_ = rand.Intn(128)
-		b[i] = rune(67)
+		r := rand.Intn(128)
+		b[i] = rune(r)
 	}
 
 	return string(b)

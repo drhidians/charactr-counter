@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"time"
 )
 
 func usage() {
@@ -33,8 +32,6 @@ func main() {
 		createRandomFiles(*root, *amount)
 	}
 
-	var t = time.Now()
-
 	var runes = make(map[rune]uint)
 
 	var numCPU = runtime.NumCPU()
@@ -54,7 +51,7 @@ func main() {
 	//var m sync.Mutex
 
 	// Keep alive "rune counter" goroutine
-	var numWork = make(chan struct{}, numCPU-2)
+	var numWork = make(chan struct{}, numCPU)
 
 	err := filepath.Walk(*root,
 
@@ -107,8 +104,6 @@ func main() {
 
 	<-done
 	close(done)
-
-	fmt.Println(time.Since(t))
 
 	for k, v := range runes {
 		fmt.Printf("%q: %d\n", k, v)
