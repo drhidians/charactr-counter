@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,11 +12,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 )
 
-// walkFiles starts a goroutine to walk the directory tree at root and send the
-// path of each regular file on the string channel.  It sends the result of the
-// walk on the error channel.  If done is closed, walkFiles abandons its work.
 func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) {
 	paths := make(chan string)
 	errc := make(chan error, 1)
@@ -32,11 +29,8 @@ func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) 
 			if !info.Mode().IsRegular() {
 				return nil
 			}
-			select {
-			case paths <- path: // HL
-			case <-done: // HL
-				return errors.New("walk canceled")
-			}
+			paths <- path // HL
+
 			return nil
 		})
 	}()
@@ -52,7 +46,9 @@ func runeReader(done <-chan struct{}, paths <-chan string, c chan<- rune) {
 		if err != nil {
 			panic(err)
 		}
+
 		b := bufio.NewReader(bytes.NewReader(data))
+		_ = b
 
 		for {
 			if r, _, err := b.ReadRune(); err != nil {
@@ -63,19 +59,15 @@ func runeReader(done <-chan struct{}, paths <-chan string, c chan<- rune) {
 					panic(err)
 				}
 			} else {
-				/*select {
-				case*/c <- r /*:
-				case <-done:
-					return
-				}*/
-
+				c <- r
 			}
 		}
 
 	}
 }
 
-func characterHistogram(root string) (map[rune]uint, error) {
+// CharacterHistogram counts characters appearance in files under "root" directory
+func CharacterHistogram(root string) (map[rune]uint, error) {
 	// characterHistogram closes the done channel when it returns; it may do so before
 	// receiving all the values from c and errc.
 	done := make(chan struct{})
@@ -83,14 +75,20 @@ func characterHistogram(root string) (map[rune]uint, error) {
 
 	paths, errc := walkFiles(done, root)
 
+	var numCpu = runtime.NumCPU()
+
 	// Create fixed number of channels for better throughput
-	c := make(chan rune, runtime.NumCPU()*100) // HLc
+	c := make(chan rune, 20*numCpu) // HLc
 	var wg sync.WaitGroup
 
-	wg.Add(1)
+	var numWorker = numCpu - 2
+	wg.Add(numWorker)
+
 	go func() {
-		runeReader(done, paths, c) // HLc
-		wg.Done()
+		for i := 0; i < numWorker; i++ {
+			runeReader(done, paths, c) // HLc
+			wg.Done()
+		}
 	}()
 
 	go func() {
@@ -128,13 +126,14 @@ func main() {
 	if *amount != 0 {
 		createRandomFiles(*root, *amount)
 	}
-
-	runes, err := characterHistogram(*root)
+	t := time.Now()
+	runes, err := CharacterHistogram(*root)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-
+	fmt.Println(time.Since(t))
+	return
 	for r, v := range runes {
 		fmt.Printf("%q: %d\n", r, v)
 	}
