@@ -133,7 +133,7 @@ func main() {
 		return
 	}
 	fmt.Println(time.Since(t))
-	return
+	//return
 	for r, v := range runes {
 		fmt.Printf("%q: %d\n", r, v)
 	}
